@@ -1,0 +1,94 @@
+version: '3.9'
+
+services:
+  database:
+    image: postgres:latest
+    hostname: database
+    container_name: database
+    env_file:
+      - ./config/local.env
+    volumes:
+      - ./config/init-user-db.sh:/docker-entrypoint-initdb.d/init-user-db.sh
+      - ./config/postgresql.conf:/etc/postgresql/postgresql.conf
+      - ./postgres-data:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U warlock', '-q']
+      interval: 5s
+      timeout: 30s
+      retries: 5
+
+  zookeeper:
+    hostname: zookeeper
+    container_name: zookeeper
+    image: confluentinc/cp-zookeeper:latest
+    env_file:
+      - ./config/local.env
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    restart: on-failure
+    hostname: kafka
+    container_name: kafka
+    env_file:
+      - ./config/local.env
+    depends_on:
+      - zookeeper
+    ports:
+      - 9092:9092
+    healthcheck:
+      test: nc -z localhost 9092
+      interval: 5s
+      timeout: 30s
+      retries: 5
+
+  debezium:
+    image: quay.io/debezium/connect:latest
+    platform: linux/amd64
+    hostname: debezium
+    container_name: debezium
+    env_file:
+      - ./config/local.env
+    depends_on:
+      - database
+      - kafka
+      - zookeeper
+    ports:
+      - 8083:8083
+    healthcheck:
+      test: curl -f http://localhost:8083/connectors
+      interval: 5s
+      timeout: 30s
+      retries: 5
+
+  debezium-ui:
+    image: quay.io/debezium/debezium-ui:2.4
+    platform: linux/amd64
+    hostname: debezium-ui
+    container_name: debezium-ui
+    env_file:
+      - ./config/local.env
+    depends_on:
+      - debezium
+    ports:
+      - 9090:8080
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop:latest
+    platform: linux/amd64
+    env_file:
+      - ./config/local.env
+    depends_on:
+      - kafka
+    ports:
+      - 9000:9000
+    healthcheck:
+      test: curl -f http://localhost:9000
+      interval: 5s
+      timeout: 30s
+      retries: 5
+
+volumes:
+  postgres-data:
